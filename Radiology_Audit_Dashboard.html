@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-slate-900" style="color-scheme:dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hospital Radiology Equipment Audit &amp; Risk Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>tailwind.config={theme:{extend:{fontFamily:{sans:['"Hanken Grotesk"','ui-sans-serif','system-ui','sans-serif']}}}}</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+.tnum{font-variant-numeric:tabular-nums}
+th[data-k]{cursor:pointer;user-select:none}
+th[data-k]:hover{color:#e2e8f0}
+</style>
+</head>
+<body class="bg-slate-900 text-slate-200 font-sans antialiased min-h-screen">
+
+<header class="max-w-7xl mx-auto px-4 sm:px-6 pt-8 pb-5">
+  <h1 class="text-2xl sm:text-3xl font-bold text-slate-50 tracking-tight">Hospital Radiology Equipment Audit &amp; Risk Dashboard</h1>
+  <p class="mt-1.5 text-slate-400">Portfolio Project: Operational Downtime, SLA Breaches &amp; Financial Loss Analysis</p>
+</header>
+
+<!-- Filters (drive every KPI, chart and the table) -->
+<div class="sticky top-0 z-20 bg-slate-900/95 backdrop-blur border-y border-slate-800">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-end gap-3">
+    <label class="flex-1 min-w-[14rem]"><span class="block text-xs text-slate-400 mb-1">Search</span>
+      <input id="q" type="search" placeholder="LogID or status, e.g. LOG137, Deferred, Breached" class="w-full bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm placeholder-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"></label>
+    <label><span class="block text-xs text-slate-400 mb-1">Modality</span>
+      <select id="fMod" class="bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"><option>All</option><option>MRI</option><option>CT</option><option>Ultrasound</option><option>X-Ray</option></select></label>
+    <label><span class="block text-xs text-slate-400 mb-1">SLA status</span>
+      <select id="fSla" class="bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"><option>All</option><option>Breached</option><option>Within SLA</option></select></label>
+    <label><span class="block text-xs text-slate-400 mb-1">Impact degree</span>
+      <select id="fImp" class="bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"><option>All</option><option>High</option><option>Medium</option><option>Low</option></select></label>
+    <label class="flex items-center gap-2 text-sm text-slate-300 pb-2 cursor-pointer"><input id="fOut" type="checkbox" class="accent-cyan-400 h-4 w-4"><span>Exclude outliers <span class="text-slate-500">(over 48 h)</span></span></label>
+    <button id="reset" class="pb-2 text-sm text-cyan-300 hover:text-cyan-200 underline underline-offset-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 rounded">Reset filters</button>
+  </div>
+</div>
+
+<main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+  <p id="outNote" class="hidden text-sm text-amber-300 bg-amber-400/10 border border-amber-400/30 rounded-md px-3 py-2"></p>
+
+  <!-- KPI cards -->
+  <section class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Key metrics">
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-5">
+      <p class="text-sm text-slate-400">Total Audited Logs</p>
+      <p id="kLogs" class="mt-1 text-3xl font-bold text-slate-50 tnum"></p>
+      <p id="kLogsSub" class="mt-1 text-xs text-slate-500"></p></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-5">
+      <p class="text-sm text-slate-400">Total Financial Impact (TFI)</p>
+      <p id="kTfi" class="mt-1 text-3xl font-bold text-cyan-300 tnum"></p>
+      <p id="kTfiSub" class="mt-1 text-xs text-slate-500"></p></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-5">
+      <p class="text-sm text-slate-400">Overall SLA Breach Rate</p>
+      <p id="kSla" class="mt-1 text-3xl font-bold text-rose-300 tnum"></p>
+      <p id="kSlaSub" class="mt-1 text-xs text-slate-500"></p></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-5">
+      <p class="text-sm text-slate-400">Average Downtime Hours</p>
+      <p id="kHrs" class="mt-1 text-3xl font-bold text-slate-50 tnum"></p>
+      <p id="kHrsSub" class="mt-1 text-xs text-slate-500"></p></div>
+  </section>
+
+  <!-- Charts -->
+  <section class="grid gap-4 lg:grid-cols-2" aria-label="Charts">
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-5">
+      <h2 class="font-semibold text-slate-100">Total financial impact by modality</h2>
+      <p class="text-xs text-slate-500 mb-3">Repair cost plus lost revenue, USD</p>
+      <div class="relative h-64"><canvas id="cTfi" role="img" aria-label="Bar chart of total financial impact by modality"></canvas></div></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-5">
+      <h2 class="font-semibold text-slate-100">Operational risk tiers</h2>
+      <p class="text-xs text-slate-500 mb-3">Share of logs by impact degree</p>
+      <div class="flex flex-col sm:flex-row items-center gap-6">
+        <div class="relative h-56 w-56 shrink-0"><canvas id="cImp" role="img" aria-label="Doughnut chart of logs by impact degree"></canvas></div>
+        <ul id="impLegend" class="w-full space-y-2 text-sm"></ul></div></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-5">
+      <h2 class="font-semibold text-slate-100">SLA breaches by modality</h2>
+      <p class="text-xs text-slate-500 mb-3">Number of logs, breached vs within SLA</p>
+      <div class="relative h-64"><canvas id="cSla" role="img" aria-label="Stacked bar chart of SLA status by modality"></canvas></div></div>
+    <div class="rounded-lg bg-slate-800/70 border border-slate-700 p-5">
+      <h2 class="font-semibold text-slate-100">Downtime hours by modality</h2>
+      <p class="text-xs text-slate-500 mb-3">Bars show the average; diamonds show the median</p>
+      <div class="relative h-64"><canvas id="cHrs" role="img" aria-label="Chart of average and median downtime hours by modality"></canvas></div></div>
+  </section>
+
+  <!-- Table -->
+  <section class="rounded-lg bg-slate-800/70 border border-slate-700" aria-label="Audit log table">
+    <div class="flex items-baseline justify-between gap-4 px-5 pt-5 pb-3">
+      <h2 class="font-semibold text-slate-100">Audit logs</h2>
+      <p id="count" class="text-sm text-slate-400 tnum"></p></div>
+    <div class="overflow-auto max-h-[30rem] border-t border-slate-700">
+      <table class="w-full text-sm whitespace-nowrap">
+        <thead id="thead" class="sticky top-0 bg-slate-800 text-slate-400 text-left"></thead>
+        <tbody id="tbody" class="divide-y divide-slate-700/60"></tbody>
+      </table></div>
+  </section>
+
+  <p class="text-xs text-slate-500 pb-6">Source: Radiology_Downtime_Clean, 50 logs. Applied on load: modality &ldquo;CT-01&rdquo; standardised to CT; severity spelling &ldquo;HIgh&rdquo; corrected to High. TFI = repair cost + estimated revenue loss.</p>
+</main>
+
+<script>
+const DATA = [{"id":"LOG101","mod":"MRI","sev":"High","status":"In Progress","start":"2026-07-02T11:19","hrs":5.18,"cost":3542,"rev":3110.0,"tfi":6652,"sla":"Breached","imp":"Medium"},{"id":"LOG102","mod":"Ultrasound","sev":"Medium","status":"Pending Parts","start":"2026-07-05T06:57","hrs":10.57,"cost":719,"rev":2113.33,"tfi":2832.33,"sla":"Breached","imp":"Medium"},{"id":"LOG103","mod":"Ultrasound","sev":"Low","status":"Out of Service","start":"2026-07-28T17:33","hrs":0.95,"cost":10811,"rev":190,"tfi":11001,"sla":"Breached","imp":"High"},{"id":"LOG104","mod":"CT","sev":"High","status":"In Progress","start":"2026-07-21T18:39","hrs":10.55,"cost":12189,"rev":5275,"tfi":17464,"sla":"Breached","imp":"High"},{"id":"LOG105","mod":"X-Ray","sev":"High","status":"Completed","start":"2026-07-16T19:38","hrs":5.23,"cost":3426,"rev":785,"tfi":4211,"sla":"Breached","imp":"Medium"},{"id":"LOG106","mod":"X-Ray","sev":"Low","status":"Awaiting Vendor","start":"2026-07-05T17:38","hrs":6.62,"cost":9155,"rev":992.5,"tfi":10147.5,"sla":"Breached","imp":"High"},{"id":"LOG107","mod":"MRI","sev":"Medium","status":"Awaiting Vendor","start":"2026-07-18T13:27","hrs":1.83,"cost":12484,"rev":1100.0,"tfi":13584,"sla":"Within SLA","imp":"High"},{"id":"LOG108","mod":"CT","sev":"Medium","status":"Completed","start":"2026-07-04T11:58","hrs":1.27,"cost":11653,"rev":633.33,"tfi":12286.33,"sla":"Breached","imp":"High"},{"id":"LOG109","mod":"X-Ray","sev":"Medium","status":"In Progress","start":"2026-07-13T23:37","hrs":8.23,"cost":2649,"rev":1235.0,"tfi":3884,"sla":"Breached","imp":"Medium"},{"id":"LOG110","mod":"CT","sev":"High","status":"Out of Service","start":"2026-07-30T19:49","hrs":1.72,"cost":8129,"rev":858.33,"tfi":8987.33,"sla":"Breached","imp":"High"},{"id":"LOG111","mod":"X-Ray","sev":"Medium","status":"Completed","start":"2026-07-13T14:51","hrs":11.42,"cost":10348,"rev":1712.5,"tfi":12060.5,"sla":"Breached","imp":"High"},{"id":"LOG112","mod":"X-Ray","sev":"Medium","status":"Pending Parts","start":"2026-07-19T14:10","hrs":5.07,"cost":3362,"rev":760,"tfi":4122,"sla":"Breached","imp":"Medium"},{"id":"LOG113","mod":"Ultrasound","sev":"Medium","status":"In Progress","start":"2026-07-19T08:08","hrs":11.47,"cost":2357,"rev":2293.33,"tfi":4650.33,"sla":"Breached","imp":"Medium"},{"id":"LOG114","mod":"Ultrasound","sev":"Medium","status":"Pending Parts","start":"2026-07-25T20:42","hrs":4.98,"cost":13493,"rev":996.67,"tfi":14489.67,"sla":"Breached","imp":"High"},{"id":"LOG115","mod":"MRI","sev":"High","status":"In Progress","start":"2026-07-24T12:32","hrs":8.92,"cost":11398,"rev":5350.0,"tfi":16748,"sla":"Breached","imp":"High"},{"id":"LOG116","mod":"CT","sev":"Low","status":"Awaiting Vendor","start":"2026-07-20T13:06","hrs":10.67,"cost":5925,"rev":5333.33,"tfi":11258.33,"sla":"Breached","imp":"High"},{"id":"LOG117","mod":"CT","sev":"Medium","status":"In Progress","start":"2026-07-26T12:16","hrs":0.68,"cost":10305,"rev":341.67,"tfi":10646.67,"sla":"Within SLA","imp":"High"},{"id":"LOG118","mod":"X-Ray","sev":"Medium","status":"Awaiting Vendor","start":"2026-07-06T09:50","hrs":5.5,"cost":2583,"rev":825,"tfi":3408,"sla":"Breached","imp":"Medium"},{"id":"LOG119","mod":"CT","sev":"Critical","status":"Pending Parts","start":"2026-07-24T10:31","hrs":2.3,"cost":12665,"rev":1150,"tfi":13815,"sla":"Breached","imp":"High"},{"id":"LOG120","mod":"MRI","sev":"High","status":"Completed","start":"2026-07-18T08:24","hrs":3.25,"cost":9084,"rev":1950,"tfi":11034,"sla":"Breached","imp":"High"},{"id":"LOG121","mod":"X-Ray","sev":"High","status":"Completed","start":"2026-07-15T07:53","hrs":4.58,"cost":3803,"rev":687.5,"tfi":4490.5,"sla":"Breached","imp":"Medium"},{"id":"LOG122","mod":"Ultrasound","sev":"Low","status":"Pending Parts","start":"2026-07-04T11:35","hrs":9.58,"cost":2144,"rev":1916.67,"tfi":4060.67,"sla":"Breached","imp":"Medium"},{"id":"LOG123","mod":"CT","sev":"Medium","status":"In Progress","start":"2026-07-25T08:21","hrs":10.85,"cost":14474,"rev":5425,"tfi":19899,"sla":"Breached","imp":"High"},{"id":"LOG124","mod":"CT","sev":"Low","status":"Completed","start":"2026-07-19T11:48","hrs":11.95,"cost":6712,"rev":0,"tfi":6712,"sla":"Within SLA","imp":"Medium"},{"id":"LOG125","mod":"CT","sev":"Medium","status":"Awaiting Vendor","start":"2026-07-11T13:25","hrs":1.58,"cost":560,"rev":791.67,"tfi":1351.67,"sla":"Breached","imp":"Low"},{"id":"LOG126","mod":"CT","sev":"Medium","status":"Completed","start":"2026-01-07T15:51","hrs":1.7,"cost":3627,"rev":850,"tfi":4477,"sla":"Breached","imp":"Medium"},{"id":"LOG127","mod":"Ultrasound","sev":"Critical","status":"Awaiting Vendor","start":"2026-07-12T03:57","hrs":5.25,"cost":3410,"rev":1050,"tfi":4460,"sla":"Breached","imp":"Medium"},{"id":"LOG128","mod":"Ultrasound","sev":"Critical","status":"Out of Service","start":"2026-07-12T09:25","hrs":8.57,"cost":3059,"rev":1713.33,"tfi":4772.33,"sla":"Breached","imp":"Medium"},{"id":"LOG129","mod":"X-Ray","sev":"Critical","status":"In Progress","start":"2026-07-20T14:39","hrs":7.5,"cost":12992,"rev":1125,"tfi":14117,"sla":"Breached","imp":"High"},{"id":"LOG130","mod":"MRI","sev":"Medium","status":"Pending Parts","start":"2026-07-04T02:12","hrs":7.37,"cost":12059,"rev":4420.0,"tfi":16479,"sla":"Breached","imp":"High"},{"id":"LOG131","mod":"CT","sev":"Low","status":"Pending Parts","start":"2026-07-25T17:46","hrs":8.15,"cost":6473,"rev":4075.0,"tfi":10548,"sla":"Breached","imp":"High"},{"id":"LOG132","mod":"MRI","sev":"High","status":"Completed","start":"2026-07-21T12:01","hrs":9.88,"cost":996,"rev":5930,"tfi":6926,"sla":"Breached","imp":"Medium"},{"id":"LOG133","mod":"CT","sev":"High","status":"Pending Parts","start":"2026-07-08T21:39","hrs":7.43,"cost":7350,"rev":3716.67,"tfi":11066.67,"sla":"Breached","imp":"High"},{"id":"LOG134","mod":"X-Ray","sev":"Medium","status":"Out of Service","start":"2026-07-01T10:21","hrs":7.15,"cost":13916,"rev":1072.5,"tfi":14988.5,"sla":"Breached","imp":"High"},{"id":"LOG135","mod":"Ultrasound","sev":"Critical","status":"In Progress","start":"2026-07-23T11:34","hrs":3.13,"cost":4626,"rev":626.67,"tfi":5252.67,"sla":"Breached","imp":"Medium"},{"id":"LOG136","mod":"Ultrasound","sev":"Low","status":"Awaiting Vendor","start":"2026-04-07T02:34","hrs":5.85,"cost":990,"rev":1170,"tfi":2160,"sla":"Breached","imp":"Medium"},{"id":"LOG137","mod":"CT","sev":"Critical","status":"Completed","start":"2026-03-07T22:07","hrs":729.17,"cost":12807,"rev":364583.33,"tfi":377390.33,"sla":"Breached","imp":"High"},{"id":"LOG138","mod":"CT","sev":"Critical","status":"Completed","start":"2026-07-19T17:01","hrs":2.53,"cost":8789,"rev":1266.67,"tfi":10055.67,"sla":"Breached","imp":"High"},{"id":"LOG139","mod":"X-Ray","sev":"Critical","status":"In Progress","start":"2026-07-31T06:01","hrs":10.45,"cost":14037,"rev":1567.5,"tfi":15604.5,"sla":"Breached","imp":"High"},{"id":"LOG140","mod":"X-Ray","sev":"Medium","status":"Out of Service","start":"2026-07-12T04:42","hrs":5.02,"cost":2180,"rev":752.5,"tfi":2932.5,"sla":"Breached","imp":"Medium"},{"id":"LOG141","mod":"X-Ray","sev":"High","status":"Completed","start":"2026-07-04T15:14","hrs":0.65,"cost":9412,"rev":97.5,"tfi":9509.5,"sla":"Breached","imp":"High"},{"id":"LOG142","mod":"Ultrasound","sev":"High","status":"Pending Parts","start":"2026-07-11T00:49","hrs":9.13,"cost":2204,"rev":1826.67,"tfi":4030.67,"sla":"Breached","imp":"Medium"},{"id":"LOG143","mod":"X-Ray","sev":"Medium","status":"Awaiting Vendor","start":"2026-07-14T07:16","hrs":3.18,"cost":12548,"rev":477.5,"tfi":13025.5,"sla":"Breached","imp":"High"},{"id":"LOG144","mod":"Ultrasound","sev":"High","status":"Deferred","start":"2026-07-01T16:32","hrs":11.88,"cost":13993,"rev":2376.67,"tfi":16369.67,"sla":"Breached","imp":"High"},{"id":"LOG145","mod":"MRI","sev":"Medium","status":"In Progress","start":"2026-07-06T04:54","hrs":9.93,"cost":4267,"rev":5960,"tfi":10227,"sla":"Breached","imp":"High"},{"id":"LOG146","mod":"X-Ray","sev":"High","status":"Completed","start":"2026-07-10T14:22","hrs":11.32,"cost":7705,"rev":1697.5,"tfi":9402.5,"sla":"Breached","imp":"High"},{"id":"LOG147","mod":"X-Ray","sev":"Critical","status":"Deferred","start":"2026-07-13T22:12","hrs":1.25,"cost":5170,"rev":187.5,"tfi":5357.5,"sla":"Breached","imp":"Medium"},{"id":"LOG148","mod":"CT","sev":"High","status":"In Progress","start":"2026-07-21T10:36","hrs":9.9,"cost":8523,"rev":4950.0,"tfi":13473,"sla":"Breached","imp":"High"},{"id":"LOG149","mod":"MRI","sev":"Low","status":"Pending Parts","start":"2026-07-26T03:55","hrs":1.1,"cost":8842,"rev":660.0,"tfi":9502,"sla":"Within SLA","imp":"High"},{"id":"LOG150","mod":"MRI","sev":"Critical","status":"Pending Parts","start":"2026-07-15T08:42","hrs":6.72,"cost":13509,"rev":4030,"tfi":17539,"sla":"Breached","imp":"High"}];
+const MODS = ['MRI','CT','Ultrasound','X-Ray'];
+const OUT_H = 48;
+const $ = id => document.getElementById(id);
+const usd = n => '$' + Math.round(n).toLocaleString('en-US');
+const kfmt = n => n >= 1e6 ? '$' + (n/1e6).toFixed(1) + 'M' : n >= 1e3 ? '$' + Math.round(n/1e3) + 'k' : '$' + n;
+const sum = (a,k) => a.reduce((s,r) => s + r[k], 0);
+const median = a => { if (!a.length) return null; const s = [...a].sort((x,y)=>x-y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m-1]+s[m])/2; };
+const state = { q:'', mod:'All', sla:'All', imp:'All', noOut:false, sort:'id', dir:1 };
+let AGG = [];
+
+const COLS = [['id','Log ID'],['mod','Modality'],['sev','Severity'],['status','Repair status'],['start','Downtime start'],
+  ['hrs','Downtime (h)','r'],['cost','Repair cost','r'],['rev','Revenue loss','r'],['tfi','TFI','r'],['sla','SLA'],['imp','Impact']];
+const IMP_C = { High:'#f43f5e', Medium:'#fbbf24', Low:'#2dd4bf' };
+const IMP_B = { High:'bg-rose-500/15 text-rose-300 ring-rose-500/30', Medium:'bg-amber-400/15 text-amber-300 ring-amber-400/30', Low:'bg-teal-400/15 text-teal-300 ring-teal-400/30' };
+const SLA_B = { 'Breached':'bg-rose-500/15 text-rose-300 ring-rose-500/30', 'Within SLA':'bg-teal-400/15 text-teal-300 ring-teal-400/30' };
+const badge = (t,c) => `<span class="inline-block rounded px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${c}">${t}</span>`;
+
+function filtered() {
+  const q = state.q.trim().toLowerCase();
+  return DATA.filter(r =>
+    (state.mod === 'All' || r.mod === state.mod) &&
+    (state.sla === 'All' || r.sla === state.sla) &&
+    (state.imp === 'All' || r.imp === state.imp) &&
+    !(state.noOut && r.hrs > OUT_H) &&
+    (!q || [r.id, r.mod, r.sev, r.status, r.sla, r.imp].join(' ').toLowerCase().includes(q)));
+}
+
+/* ---------- Charts ---------- */
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.borderColor = '#334155';
+Chart.defaults.font.family = '"Hanken Grotesk", system-ui, sans-serif';
+if (matchMedia('(prefers-reduced-motion: reduce)').matches) Chart.defaults.animation = false;
+const base = { responsive:true, maintainAspectRatio:false };
+const tip = { backgroundColor:'#0f172a', borderColor:'#475569', borderWidth:1, padding:10 };
+let total = 0;
+
+const cTfi = new Chart($('cTfi'), { type:'bar',
+  data:{ labels:MODS, datasets:[{ data:[], backgroundColor:'#22d3ee', borderRadius:4, maxBarThickness:64 }] },
+  options:{ ...base, plugins:{ legend:{display:false}, tooltip:{ ...tip, callbacks:{
+    label:c => 'TFI: ' + usd(c.parsed.y),
+    afterBody:i => { const a = AGG[i[0].dataIndex]; return ['Repair cost: ' + usd(a.cost), 'Lost revenue: ' + usd(a.rev), a.n + ' logs']; } } } },
+    scales:{ y:{ beginAtZero:true, ticks:{ callback:v => kfmt(v) } }, x:{ grid:{display:false} } } } });
+
+const centre = { id:'centre', afterDraw(c) {
+  const a = c.chartArea, x = (a.left + a.right)/2, y = (a.top + a.bottom)/2, g = c.ctx;
+  g.save(); g.textAlign = 'center';
+  g.fillStyle = '#f8fafc'; g.font = '700 28px "Hanken Grotesk", sans-serif'; g.fillText(total, x, y + 6);
+  g.fillStyle = '#94a3b8'; g.font = '500 12px "Hanken Grotesk", sans-serif'; g.fillText('logs', x, y + 24); g.restore(); } };
+const cImp = new Chart($('cImp'), { type:'doughnut',
+  data:{ labels:['High','Medium','Low'], datasets:[{ data:[], backgroundColor:['#f43f5e','#fbbf24','#2dd4bf'], borderColor:'#1e293b', borderWidth:3 }] },
+  options:{ ...base, cutout:'68%', plugins:{ legend:{display:false}, tooltip:{ ...tip, callbacks:{ label:c => ` ${c.label}: ${c.parsed} logs` } } } },
+  plugins:[centre] });
+
+const cSla = new Chart($('cSla'), { type:'bar',
+  data:{ labels:MODS, datasets:[
+    { label:'Breached', data:[], backgroundColor:'#f43f5e', maxBarThickness:64 },
+    { label:'Within SLA', data:[], backgroundColor:'#2dd4bf', maxBarThickness:64 } ] },
+  options:{ ...base, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, boxHeight:12 } }, tooltip:tip },
+    scales:{ x:{ stacked:true, grid:{display:false} }, y:{ stacked:true, beginAtZero:true, ticks:{ precision:0 } } } } });
+
+const cHrs = new Chart($('cHrs'), { type:'bar',
+  data:{ labels:MODS, datasets:[
+    { label:'Average', data:[], backgroundColor:'#38bdf8', borderRadius:4, maxBarThickness:64, order:2 },
+    { type:'line', label:'Median', data:[], showLine:false, pointStyle:'rectRot', pointRadius:7, pointBackgroundColor:'#fbbf24', pointBorderColor:'#0f172a', pointBorderWidth:2, order:1 } ] },
+  options:{ ...base, plugins:{ legend:{ position:'bottom', labels:{ boxWidth:12, boxHeight:12 } },
+    tooltip:{ ...tip, callbacks:{ label:c => ` ${c.dataset.label}: ${c.parsed.y.toFixed(1)} h`,
+      afterBody:i => { const a = AGG[i[0].dataIndex]; return a.n + ' logs, max ' + Math.max(...a.h).toFixed(1) + ' h'; } } } },
+    scales:{ y:{ beginAtZero:true, title:{ display:true, text:'Hours' } }, x:{ grid:{display:false} } } } });
+
+/* ---------- Render ---------- */
+function update() {
+  const f = filtered(), n = f.length;
+  AGG = MODS.map(m => { const rs = f.filter(r => r.mod === m);
+    return { n:rs.length, cost:sum(rs,'cost'), rev:sum(rs,'rev'), tfi:sum(rs,'tfi'), br:rs.filter(r => r.sla === 'Breached').length, h:rs.map(r => r.hrs) }; });
+
+  // KPIs
+  const tfi = sum(f,'tfi'), br = f.filter(r => r.sla === 'Breached').length, hrs = f.map(r => r.hrs);
+  $('kLogs').textContent = n;
+  $('kLogsSub').textContent = `of ${DATA.length} in the dataset`;
+  $('kTfi').textContent = usd(tfi);
+  $('kTfiSub').textContent = `Repair ${usd(sum(f,'cost'))} + lost revenue ${usd(sum(f,'rev'))}`;
+  $('kSla').textContent = n ? (br / n * 100).toFixed(1) + '%' : '–';
+  $('kSlaSub').textContent = `${br} breached, ${n - br} within SLA`;
+  $('kHrs').textContent = n ? (sum(f,'hrs') / n).toFixed(1) : '–';
+  $('kHrsSub').textContent = n ? `Median ${median(hrs).toFixed(1)} h, longest ${Math.max(...hrs).toFixed(1)} h` : 'No logs selected';
+
+  // Outlier note
+  const out = f.filter(r => r.hrs > OUT_H), note = $('outNote');
+  if (out.length && tfi) {
+    note.textContent = `${out.map(r => r.id).join(', ')} logged over ${OUT_H} h of downtime (${out.map(r => Math.round(r.hrs) + ' h').join(', ')}) and make up ${(sum(out,'tfi') / tfi * 100).toFixed(0)}% of the TFI shown. Tick "Exclude outliers" to see typical figures.`;
+    note.classList.remove('hidden');
+  } else note.classList.add('hidden');
+
+  // Charts
+  cTfi.data.datasets[0].data = AGG.map(a => a.tfi); cTfi.update();
+  const tiers = ['High','Medium','Low'].map(t => f.filter(r => r.imp === t).length);
+  total = n; cImp.data.datasets[0].data = tiers; cImp.update();
+  $('impLegend').innerHTML = ['High','Medium','Low'].map((t,i) =>
+    `<li class="flex items-center justify-between gap-3"><span class="flex items-center gap-2"><span class="h-3 w-3 rounded-sm" style="background:${IMP_C[t]}"></span>${t} impact</span><span class="tnum text-slate-300">${tiers[i]} <span class="text-slate-500">(${n ? Math.round(tiers[i] / n * 100) : 0}%)</span></span></li>`).join('');
+  cSla.data.datasets[0].data = AGG.map(a => a.br);
+  cSla.data.datasets[1].data = AGG.map(a => a.n - a.br); cSla.update();
+  cHrs.data.datasets[0].data = AGG.map(a => a.n ? a.h.reduce((s,v) => s + v, 0) / a.n : null);
+  cHrs.data.datasets[1].data = AGG.map(a => median(a.h)); cHrs.update();
+
+  renderTable(f);
+}
+
+function renderTable(f) {
+  const { sort, dir } = state;
+  const rows = [...f].sort((a,b) => (typeof a[sort] === 'number' ? a[sort] - b[sort] : String(a[sort]).localeCompare(String(b[sort]))) * dir);
+  $('thead').innerHTML = '<tr>' + COLS.map(([k,l,al]) =>
+    `<th data-k="${k}" scope="col" class="px-4 py-2.5 font-medium ${al ? 'text-right' : ''}" aria-sort="${k === sort ? (dir > 0 ? 'ascending' : 'descending') : 'none'}">${l}${k === sort ? (dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr>';
+  const fmtD = s => new Date(s).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+  $('tbody').innerHTML = rows.length ? rows.map(r => `<tr class="hover:bg-slate-700/30">
+    <td class="px-4 py-2 font-medium text-slate-100">${r.id}</td><td class="px-4 py-2">${r.mod}</td><td class="px-4 py-2">${r.sev}</td>
+    <td class="px-4 py-2">${r.status}</td><td class="px-4 py-2 text-slate-400">${fmtD(r.start)}</td>
+    <td class="px-4 py-2 text-right tnum">${r.hrs > OUT_H ? '<span class="mr-1.5 text-xs text-amber-300" title="Over 48 h of downtime">outlier</span>' : ''}${r.hrs.toFixed(1)}</td>
+    <td class="px-4 py-2 text-right tnum">${usd(r.cost)}</td><td class="px-4 py-2 text-right tnum">${usd(r.rev)}</td>
+    <td class="px-4 py-2 text-right tnum font-medium text-slate-100">${usd(r.tfi)}</td>
+    <td class="px-4 py-2">${badge(r.sla, SLA_B[r.sla])}</td><td class="px-4 py-2">${badge(r.imp, IMP_B[r.imp])}</td></tr>`).join('')
+    : `<tr><td colspan="${COLS.length}" class="px-4 py-10 text-center text-slate-400">No logs match these filters. Change the search or reset the filters.</td></tr>`;
+  $('count').textContent = `Showing ${f.length} of ${DATA.length} logs`;
+}
+
+/* ---------- Events ---------- */
+$('q').addEventListener('input', e => { state.q = e.target.value; update(); });
+[['fMod','mod'],['fSla','sla'],['fImp','imp']].forEach(([id,k]) => $(id).addEventListener('change', e => { state[k] = e.target.value; update(); }));
+$('fOut').addEventListener('change', e => { state.noOut = e.target.checked; update(); });
+$('reset').addEventListener('click', () => {
+  Object.assign(state, { q:'', mod:'All', sla:'All', imp:'All', noOut:false });
+  $('q').value = ''; $('fMod').value = $('fSla').value = $('fImp').value = 'All'; $('fOut').checked = false; update(); });
+$('thead').addEventListener('click', e => {
+  const th = e.target.closest('th[data-k]'); if (!th) return;
+  state.dir = state.sort === th.dataset.k ? -state.dir : 1; state.sort = th.dataset.k; renderTable(filtered()); });
+
+update();
+</script>
+</body>
+</html>
